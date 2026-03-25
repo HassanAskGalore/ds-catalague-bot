@@ -82,6 +82,7 @@ async def startup_event():
 class ChatRequest(BaseModel):
     query: str
     filters: Optional[Dict] = None
+    show_sources: bool = False  # OFF by default
 
 
 class SourceInfo(BaseModel):
@@ -214,7 +215,7 @@ async def chat(request: ChatRequest):
         # Build response
         response_data = {
             "answer": result["answer"],
-            "sources": [SourceInfo(**source) for source in result["sources"]],
+            "sources": [SourceInfo(**source) for source in result["sources"]] if request.show_sources else [],
             "chunks_used": len(top_chunks),
             "format": result.get("format", "text")
         }

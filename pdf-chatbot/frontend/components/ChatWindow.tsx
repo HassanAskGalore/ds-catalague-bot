@@ -22,6 +22,7 @@ export default function ChatWindow() {
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
+  const [showSources, setShowSources] = useState(false); // OFF by default
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -50,6 +51,7 @@ export default function ChatWindow() {
       const response = await chatAPI.sendMessage({
         query: input,
         filters: Object.keys(filters).length > 0 ? filters : undefined,
+        show_sources: showSources, // Pass the toggle state
       });
 
       const botMessage: Message = {
@@ -97,7 +99,12 @@ export default function ChatWindow() {
         } transition-all duration-300 overflow-hidden bg-navy-900 border-r border-cyan-500/20`}
       >
         <div className="p-4">
-          <SearchFilters filters={filters} onFilterChange={setFilters} />
+          <SearchFilters 
+            filters={filters} 
+            showSources={showSources}
+            onFilterChange={setFilters}
+            onShowSourcesChange={setShowSources}
+          />
         </div>
       </div>
 

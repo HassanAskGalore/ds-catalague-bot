@@ -8,10 +8,12 @@ interface SearchFiltersProps {
     catalogue_section?: string;
     has_table?: boolean;
   };
+  showSources: boolean;
   onFilterChange: (filters: any) => void;
+  onShowSourcesChange: (show: boolean) => void;
 }
 
-export default function SearchFilters({ filters, onFilterChange }: SearchFiltersProps) {
+export default function SearchFilters({ filters, showSources, onFilterChange, onShowSourcesChange }: SearchFiltersProps) {
   const productTypes = [
     'all',
     'clamp',
@@ -99,6 +101,20 @@ export default function SearchFilters({ filters, onFilterChange }: SearchFilters
         />
         <label htmlFor="has-table" className="text-gray-300 text-sm">
           Only show products with tables
+        </label>
+      </div>
+
+      {/* Show Sources Toggle */}
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          id="show-sources"
+          checked={showSources}
+          onChange={(e) => onShowSourcesChange(e.target.checked)}
+          className="w-4 h-4 accent-cyan-500"
+        />
+        <label htmlFor="show-sources" className="text-gray-300 text-sm">
+          Show source references
         </label>
       </div>
 

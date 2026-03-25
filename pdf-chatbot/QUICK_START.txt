@@ -1,0 +1,55 @@
+═══════════════════════════════════════════════════════════
+  PDF CHATBOT - QUICK START GUIDE
+═══════════════════════════════════════════════════════════
+
+SYSTEM IS ALREADY RUNNING! Just start the frontend:
+
+  cd pdf-chatbot/frontend
+  npm run dev
+
+Then open: http://localhost:3000
+
+───────────────────────────────────────────────────────────
+
+IF YOU NEED TO START FROM SCRATCH:
+
+1. Start Qdrant (Vector Database)
+   cd pdf-chatbot
+   docker-compose up -d qdrant
+
+2. Start Backend API (in new terminal)
+   cd pdf-chatbot/backend
+   python -m api.main
+
+3. Start Frontend (in new terminal)
+   cd pdf-chatbot/frontend
+   npm run dev
+
+4. Open Browser
+   http://localhost:3000
+
+───────────────────────────────────────────────────────────
+
+VERIFY SERVICES:
+
+✓ Qdrant:  curl http://localhost:6333/collections
+✓ Backend: curl http://localhost:8000/health
+✓ Frontend: Open http://localhost:3000
+
+───────────────────────────────────────────────────────────
+
+STOP SERVICES:
+
+Frontend & Backend: Press Ctrl+C in their terminals
+Qdrant: docker-compose down
+
+───────────────────────────────────────────────────────────
+
+SAMPLE QUERIES TO TRY:
+
+• "What products are available?"
+• "Tell me about aluminium conductors"
+• "What are the specifications for suspension fittings?"
+• "Show me products with part number 4326.01"
+
+═══════════════════════════════════════════════════════════

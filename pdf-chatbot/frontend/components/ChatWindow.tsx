@@ -99,7 +99,7 @@ export default function ChatWindow() {
     <div className="flex flex-col lg:flex-row h-screen bg-[#f8f9fa] overflow-hidden">
       
       {/* LEFT PANEL: 3D Avatar (Cinematic Design) */}
-      <div className="hidden lg:flex lg:w-[45%] h-full relative z-20 border-r border-[#e2e8f0] shadow-xl items-center justify-center bg-[#0a0c10]">
+      <div className="hidden lg:flex lg:w-[35%] h-full relative z-20 border-r border-[#e2e8f0] shadow-xl items-center justify-center bg-[#0a0c10]">
         
         {/* Floating Action Buttons */}
         <div className="absolute top-6 left-6 flex gap-3 z-30">
@@ -125,7 +125,7 @@ export default function ChatWindow() {
       </div>
 
       {/* RIGHT PANEL: Sleek Chat Interface */}
-      <div className="flex-1 flex flex-row h-full w-full lg:w-[55%] relative z-10">
+      <div className="flex-1 flex flex-row h-full w-full lg:w-[65%] relative z-10">
         
         {/* Hidden Sidebar (Filters) */}
         <div className={`${showFilters ? 'w-80' : 'w-0'} transition-all duration-300 overflow-hidden bg-white border-r border-[#e2e8f0] flex-shrink-0 z-30 shadow-lg`}>

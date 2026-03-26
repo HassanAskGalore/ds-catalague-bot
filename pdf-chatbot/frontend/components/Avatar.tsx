@@ -20,7 +20,7 @@ function ShylaModel({ isSpeaking }: ShylaModelProps) {
     if (group.current) {
       // Basic fallback animation: slight idle breathing or speaking bob
       const targetY = isSpeaking ? Math.sin(state.clock.elapsedTime * 10) * 0.02 : Math.sin(state.clock.elapsedTime * 2) * 0.005;
-      group.current.position.y = THREE.MathUtils.lerp(group.current.position.y, targetY - 1.9, 0.1);
+      group.current.position.y = THREE.MathUtils.lerp(group.current.position.y, targetY - 2.1, 0.1);
     }
 
     // Attempting to find mesh with morph targets
@@ -45,7 +45,7 @@ function ShylaModel({ isSpeaking }: ShylaModelProps) {
 
   return (
     <group ref={group} dispose={null}>
-      <primitive object={scene} scale={3} position={[0, -1.9, 0]} />
+     <primitive object={scene} scale={4.3} position={[0, -4, 0]} />
     </group>
   );
 }
@@ -63,36 +63,38 @@ function FallbackImage() {
 
 export default function Avatar({ isSpeaking = false }: { isSpeaking?: boolean }) {
   return (
-    <div className="w-full h-full bg-gradient-to-br from-[#0a0c10] to-[#001c38] relative overflow-hidden flex flex-col items-center justify-center">
+    <div className="w-full h-full bg-gradient-to-br from-[#0a0c10] to-[#001c38] relative overflow-hidden flex flex-col items-center justify-end">
       <div className="absolute inset-0 z-0 bg-black/40 pointer-events-none" />
       
-      <Canvas 
-        camera={{ position: [0, 0.5, 1.3], fov: 40 }}
-        className="w-full h-full z-10"
-      >ce sho
-        <ambientLight intensity={0.8} />
-        <directionalLight position={[5, 5, 5]} intensity={1.5} color="#ffffff" />
-        <directionalLight position={[-5, 5, -5]} intensity={1} color="#e3000f" />
-        <spotLight position={[0, 5, 0]} intensity={0.5} />
-        <Environment preset="city" />
-        
-        <Suspense fallback={<FallbackImage />}>
-          <ShylaModel isSpeaking={isSpeaking} />
-        </Suspense>
+      <div className="w-full h-full relative">
+        <Canvas 
+          camera={{ position: [0, 0.3, 2.2], fov: 50 }}
+          className="w-full h-full z-10"
+        >
+          <ambientLight intensity={0.8} />
+          <directionalLight position={[5, 5, 5]} intensity={1.5} color="#ffffff" />
+          <directionalLight position={[-5, 5, -5]} intensity={1} color="#e3000f" />
+          <spotLight position={[0, 5, 0]} intensity={0.5} />
+          <Environment preset="city" />
+          
+          <Suspense fallback={<FallbackImage />}>
+            <ShylaModel isSpeaking={isSpeaking} />
+          </Suspense>
 
-        <OrbitControls 
-          enableZoom={false} 
-          enablePan={false} 
-          target={[0, 0.5, 0]}
-          minPolarAngle={Math.PI / 2} 
-          maxPolarAngle={Math.PI / 2}
-          minAzimuthAngle={-Math.PI / 12}
-          maxAzimuthAngle={Math.PI / 12}
-        />
-      </Canvas>
+          <OrbitControls 
+            enableZoom={false} 
+            enablePan={false} 
+            target={[0, 0.7, 0]}
+            minPolarAngle={Math.PI / 2} 
+            maxPolarAngle={Math.PI / 2}
+            minAzimuthAngle={-Math.PI / 12}
+            maxAzimuthAngle={Math.PI / 12}
+          />
+        </Canvas>
+      </div>
 
       {/* Fade out bottom to hide mesh cutoff gracefully */}
-      <div className="absolute bottom-0 left-0 w-full h-1/4 bg-gradient-to-t from-[#001c38] to-transparent pointer-events-none z-20" />
+      <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-[#001c38] to-transparent pointer-events-none z-20" />
     </div>
   );
 }

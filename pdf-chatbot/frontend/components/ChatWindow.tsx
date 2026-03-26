@@ -119,7 +119,6 @@ export default function ChatWindow() {
         
         {/* Subtle branding overlay on avatar side */}
         <div className="absolute bottom-6 left-6 z-30 font-semibold text-white/50 tracking-wider text-xs flex items-center gap-2 drop-shadow-md">
-          <img src="/logo.svg" alt="Mosdorfer Logo" className="h-6 opacity-80 mix-blend-screen grayscale" />
           <span>VIRTUAL ASSISTANT ENGINE</span>
         </div>
       </div>
@@ -144,7 +143,10 @@ export default function ChatWindow() {
           
           {/* Extremely Minimal Header */}
           <div className="absolute top-0 w-full px-6 py-4 flex items-center justify-between z-20 bg-gradient-to-b from-[#f8f9fa] to-transparent pointer-events-none">
-            <div className="font-bold text-moss-dark tracking-tight pointer-events-auto">Mosdorfer AI</div>
+            <div className="flex items-center gap-3 pointer-events-auto">
+              <img src="/mosdorfer-logo.png" alt="Mosdorfer" className="h-10 w-auto object-contain" />
+              <span className="font-bold text-moss-dark tracking-tight">AI Assistant</span>
+            </div>
             <div className="flex gap-2 pointer-events-auto">
               <button onClick={() => setShowFilters(!showFilters)} className="p-2 text-gray-500 hover:text-moss-blue hover:bg-white rounded-full transition-colors shadow-sm bg-white/80 backdrop-blur-sm border border-gray-200">
                 <SlidersHorizontal size={18} />

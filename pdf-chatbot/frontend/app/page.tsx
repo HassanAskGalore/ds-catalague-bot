@@ -1,11 +1,11 @@
 'use client';
 
-import ChatWindow from '@/components/ChatWindow';
+import ChatWindowWithRhubarb from '@/components/ChatWindowWithRhubarb';
 
 export default function Home() {
   return (
     <main className="h-screen">
-      <ChatWindow />
+      <ChatWindowWithRhubarb />
     </main>
   );
 }

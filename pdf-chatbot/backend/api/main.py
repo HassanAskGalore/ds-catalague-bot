@@ -1,15 +1,20 @@
 """
 FastAPI backend for catalogue chatbot
-Endpoints: /chat, /health, /ingest, /products
+Endpoints: /chat, /health, /ingest, /products, /lip-sync
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import logging
 import sys
 import os
+import subprocess
+import platform
+import base64
+import azure.cognitiveservices.speech as speechsdk
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -49,6 +54,33 @@ qdrant_store = None
 embed_model = None
 searcher = None
 reranker = None
+
+# Rhubarb and TTS configuration
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tts_audio")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Detect Rhubarb path based on OS
+system = platform.system().lower()
+current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+if system == "windows":
+    rhubarbExePath = os.path.join(current_dir, "Rhubarb-Lip-Sync-1.13.0-Windows", "rhubarb.exe")
+elif system == "darwin":  # macOS
+    rhubarbExePath = os.path.join(current_dir, "Rhubarb", "rhubarb")
+elif system == "linux":
+    rhubarbExePath = os.path.join(current_dir, "Rhubarb", "rhubarb")
+else:
+    rhubarbExePath = os.path.join(current_dir, "Rhubarb", "rhubarb")
+
+# Azure Speech configuration
+AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY", "")
+AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION", "centralindia")
+
+SUPPORTED_VOICES = {
+    "Male_1": "en-US-EricNeural",
+    "Female_1": "en-US-AvaMultilingualNeural",
+    "Female_2": "en-US-JennyNeural",
+}
 
 
 @app.on_event("startup")
@@ -340,3 +372,189 @@ async def get_products():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ===== LIP-SYNC FUNCTIONS =====
+
+def text_to_speech_azure(text: str, voice: str, session_id: str) -> str:
+    """Generate speech audio using Azure TTS"""
+    try:
+        speech_config = speechsdk.SpeechConfig(
+            subscription=AZURE_SPEECH_KEY,
+            region=AZURE_SPEECH_REGION
+        )
+        speech_config.speech_synthesis_voice_name = voice
+        
+        wav_file = os.path.join(OUTPUT_DIR, f"{session_id}.wav")
+        audio_config = speechsdk.audio.AudioOutputConfig(filename=wav_file)
+        
+        speech_synthesizer = speechsdk.SpeechSynthesizer(
+            speech_config=speech_config,
+            audio_config=audio_config
+        )
+        
+        result = speech_synthesizer.speak_text_async(text).get()
+        
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            logger.info(f"TTS audio generated: {wav_file}")
+            return wav_file
+        else:
+            logger.error(f"TTS failed: {result.reason}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        return None
+
+
+def convert_wav_to_pcm(input_wav: str, output_wav: str) -> str:
+    """Convert WAV to PCM format for Rhubarb"""
+    try:
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_wav,
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            output_wav
+        ], check=True, capture_output=True)
+        
+        logger.info(f"Converted to PCM: {output_wav}")
+        return output_wav
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg conversion failed: {e.stderr.decode()}")
+        return None
+    except Exception as e:
+        logger.error(f"Conversion error: {e}")
+        return None
+
+
+def generate_lip_sync(wav_file: str, user_id: str) -> str:
+    """Generate lip-sync JSON using Rhubarb"""
+    try:
+        if not os.path.exists(rhubarbExePath):
+            raise RuntimeError(f"Rhubarb not found at: {rhubarbExePath}")
+        
+        json_file = os.path.join(OUTPUT_DIR, f"{user_id}.json")
+        
+        result = subprocess.run([
+            rhubarbExePath,
+            "-f", "json",
+            "-o", json_file,
+            wav_file,
+            "-r", "phonetic"
+        ], capture_output=True, text=True, check=True)
+        
+        if os.path.exists(json_file):
+            logger.info(f"Lip-sync generated: {json_file}")
+            return json_file
+        else:
+            logger.error("Rhubarb did not generate JSON file")
+            return None
+            
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Rhubarb failed: {e.stderr}")
+        return None
+    except Exception as e:
+        logger.error(f"Lip-sync generation error: {e}")
+        return None
+
+
+def parse_lip_sync(json_file: str, sound_file: str) -> dict:
+    """Parse Rhubarb JSON and add sound file reference"""
+    try:
+        import json
+        with open(json_file, "r") as file:
+            lip_sync_data = json.load(file)
+        
+        lip_sync_data["metadata"]["soundFile"] = sound_file
+        return lip_sync_data
+        
+    except Exception as e:
+        logger.error(f"JSON parsing error: {e}")
+        return None
+
+
+# ===== LIP-SYNC ENDPOINT =====
+
+class LipSyncRequest(BaseModel):
+    message: str
+    user_id: str
+    voice_selection: str = "Female_2"
+
+
+@app.post("/lip-sync")
+async def lip_sync_endpoint(request: LipSyncRequest):
+    """
+    Generate lip-sync data for avatar animation
+    
+    Process:
+    1. Get answer from RAG system
+    2. Generate audio with Azure TTS
+    3. Convert to PCM format
+    4. Generate lip-sync with Rhubarb
+    5. Return audio + lip-sync JSON
+    """
+    try:
+        logger.info(f"Lip-sync request: {request.message}")
+        
+        # Step 1: Get answer from RAG
+        from llm.chain import generate_answer
+        
+        # Quick search for answer
+        raw_results = searcher.search(
+            query=request.message,
+            top_k=5,
+            filters=None
+        )
+        
+        if raw_results:
+            top_chunks = reranker.rerank(
+                query=request.message,
+                results=raw_results,
+                top_n=3
+            )
+            result = generate_answer(request.message, top_chunks)
+            answer = result["answer"]
+        else:
+            answer = "I don't have information about that in the catalogue."
+        
+        # Step 2: Validate voice
+        voice = SUPPORTED_VOICES.get(request.voice_selection, "en-US-JennyNeural")
+        
+        # Step 3: Generate TTS audio
+        wav_file = text_to_speech_azure(answer, voice, request.user_id)
+        if not wav_file:
+            raise HTTPException(status_code=500, detail="TTS generation failed")
+        
+        # Step 4: Convert to PCM
+        pcm_file = os.path.join(OUTPUT_DIR, f"{request.user_id}_pcm.wav")
+        pcm_file = convert_wav_to_pcm(wav_file, pcm_file)
+        if not pcm_file:
+            raise HTTPException(status_code=500, detail="Audio conversion failed")
+        
+        # Step 5: Generate lip-sync
+        json_file = generate_lip_sync(pcm_file, request.user_id)
+        if not json_file:
+            raise HTTPException(status_code=500, detail="Lip-sync generation failed")
+        
+        # Step 6: Parse lip-sync data
+        lip_sync_data = parse_lip_sync(json_file, wav_file)
+        if not lip_sync_data:
+            raise HTTPException(status_code=500, detail="Lip-sync parsing failed")
+        
+        # Step 7: Encode audio to base64
+        with open(wav_file, "rb") as audio_file:
+            audio_base64 = base64.b64encode(audio_file.read()).decode("utf-8")
+        
+        # Step 8: Return response
+        return JSONResponse(content={
+            "text": answer,
+            "facialExpression": "default",
+            "animation": "Idle",
+            "audio": audio_base64,
+            "lipsync": lip_sync_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Lip-sync endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

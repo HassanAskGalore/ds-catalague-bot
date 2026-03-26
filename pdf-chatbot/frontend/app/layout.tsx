@@ -7,6 +7,9 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Mosdorfer Catalogue Assistant',
   description: 'AI-powered assistant for Mosdorfer engineering product catalogue',
+  icons: {
+    icon: '/icon.svg',
+  },
 }
 
 export default function RootLayout({

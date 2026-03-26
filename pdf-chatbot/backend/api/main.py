@@ -160,8 +160,16 @@ async def chat(request: ChatRequest):
         )
         
         if not raw_results:
+            # Get some general catalogue info to suggest
+            fallback_suggestions = [
+                "I couldn't find specific information about that. However, I have extensive knowledge about:\n- Tension clamps (PK series)\n- Suspension clamps\n- Oscillating clamps\n- Distribution fittings\n\nCould you rephrase your question or ask about one of these categories?",
+                "I don't have information on that specific item. Our catalogue includes products like tension clamps, top clamps, and various conductor fittings. What type of product are you looking for?",
+                "That's not in my current knowledge base. I can help you with product specifications, part numbers, weights, and technical details for our clamp and fitting series. What would you like to know?",
+                "I couldn't locate that information. Did you mean to ask about a specific product series? I have detailed specs for PK clamps, suspension fittings, and more.",
+            ]
+            import random
             return ChatResponse(
-                answer="I couldn't find any relevant information in the catalogue for your query.",
+                answer=random.choice(fallback_suggestions),
                 sources=[],
                 chunks_used=0,
                 format="text"

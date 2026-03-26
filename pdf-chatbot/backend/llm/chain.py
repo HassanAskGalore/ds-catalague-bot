@@ -39,6 +39,16 @@ STRICT RULES:
 5. If multiple products match the query, list ALL of them
 6. Never guess, invent, or assume any specification
 7. If asked about a part number, find exact match first
+8. if asked for theoritical info provide a clear structured theory
+
+RESPONSE FORMAT FOR THEORETICAL/EXPLANATORY QUESTIONS:
+When asked about advantages, benefits, differences, explanations, or "what/why/how" questions:
+- Provide a clear, well-structured explanation
+- Use bullet points or numbered lists for clarity
+- Include relevant details from the context
+- Format with emojis or symbols if appropriate for readability
+- Make it easy to understand and visually appealing
+- Cite the source at the end
 
 RESPONSE FORMAT WHEN INFO IS AVAILABLE:
 - Direct answer first
@@ -53,13 +63,25 @@ RESPONSE FORMAT WHEN INFO IS NOT AVAILABLE:
 - Offer to help with related information
 - Be conversational and vary your responses (don't repeat the same message)
 
+EXAMPLES OF GOOD THEORETICAL ANSWERS:
+Query: "What are the advantages of insulated overhead lines?"
+Answer: "Advantages of Insulated Overhead Lines:
+
+⚡ Safety: Reduced risk of electric shocks and accidental contact
+🌳 Vegetation Management: Can operate closer to trees with less trimming needed
+🔌 Reliability: Lower risk of short circuits from phase-to-phase contact
+🔥 Fire Prevention: Minimizes sparking in dry or forested areas
+🏙️ Compact Installation: Requires less clearance, suitable for urban areas
+💰 Lower Maintenance: Fewer outages and repairs
+
+[Source: Page X, Section Y]"
+
 EXAMPLES OF HELPFUL RESPONSES:
 - "I don't have specific information about that model, but I can help you with our tension clamps (PK series) or suspension clamps. Which would you like to know about?"
 - "I couldn't find that exact part number. Did you mean PK 20/II? We also have similar products in the catalogue."
 - "That specification isn't listed, but I have detailed information about conductor diameters, breaking loads, and weights for our clamp series. What would be most helpful?"
-- "I don't see that in the catalogue. However, we have extensive information on distribution fittings, tension clamps, and oscillating clamps. Would any of these help?"
 
-Remember: Be helpful and conversational, not robotic. Guide users to what you DO know."""
+Remember: Be helpful, conversational, and format answers clearly. For theory questions, provide structured explanations. For specs, provide exact data."""
 
 SYSTEM_PROMPT_TABLE = """You are a data retrieval assistant for the Mosdorfer engineering product catalogue.
 
@@ -109,22 +131,32 @@ def detect_table_query(query: str) -> bool:
     Returns:
         True if table format is appropriate
     """
-    table_keywords = [
-        'show all', 'list all', 'compare', 'table', 'specifications',
-        'spec', 'what are the', 'give me all', 'show me all',
-        'list the', 'comparison', 'details for', 'properties of'
+    # Keywords that indicate theoretical/explanatory answers (NOT tables)
+    theory_keywords = [
+        'what are', 'what is', 'explain', 'describe', 'why', 'how does',
+        'advantages', 'disadvantages', 'benefits', 'difference between',
+        'compared to', 'vs', 'versus', 'purpose of', 'used for',
+        'definition', 'meaning', 'concept', 'theory', 'principle'
     ]
     
     query_lower = query.lower()
+    
+    # If it's a theoretical question, return text format
+    for keyword in theory_keywords:
+        if keyword in query_lower:
+            return False
+    
+    # Keywords that indicate table output
+    table_keywords = [
+        'show all', 'list all', 'compare specifications', 'table', 
+        'give me all', 'show me all', 'list the products',
+        'all products', 'all items', 'specifications for all'
+    ]
     
     # Check for table keywords
     for keyword in table_keywords:
         if keyword in query_lower:
             return True
-    
-    # Check for multiple product queries
-    if any(word in query_lower for word in ['products', 'items', 'fittings', 'all']):
-        return True
     
     return False
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Volume2, VolumeX, SquareArrowOutUpRight } from 'lucide-react';
+import { Volume2, VolumeX } from 'lucide-react';
 
 interface TableData {
   part_number?: string | null;
@@ -31,11 +31,24 @@ export default function MessageBubble({
   tableData 
 }: MessageBubbleProps) {
   
+  const [isPlaying, setIsPlaying] = useState(false);
+  const toggleTTS = () => setIsPlaying(!isPlaying);
+
+  const formatMessage = (text: string) => {
+    let formatted = text;
+    formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    formatted = formatted.replace(/^### (.+)$/gm, '<h3 class="text-lg font-bold mt-4 mb-2">$1</h3>');
+    formatted = formatted.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold mt-4 mb-2">$1</h2>');
+    formatted = formatted.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-4 mb-2">$1</h1>');
+    formatted = formatted.replace(/^[•\-\*] (.+)$/gm, '<li class="ml-4">$1</li>');
+    formatted = formatted.replace(/(<li class="ml-4">.*?<\/li>\n?)+/g, '<ul class="list-disc ml-4 space-y-1 my-2">$&</ul>');
+    return formatted;
+  };
+
   const renderTable = () => {
     if (!tableData || tableData.length === 0) return null;
-
-    const hasColumn = (key: keyof TableData) => 
-      tableData.some(row => row[key] !== null && row[key] !== undefined);
+    const hasColumn = (key: keyof TableData) => tableData.some(row => row[key] !== null && row[key] !== undefined);
 
     return (
       <div className="mt-4 overflow-hidden rounded-xl border border-gray-100 shadow-sm bg-gray-50/50">
@@ -81,37 +94,24 @@ export default function MessageBubble({
     );
   };
 
-  const [isPlaying, setIsPlaying] = useState(false);
-  const toggleTTS = () => setIsPlaying(!isPlaying);
-
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-6 group`}>
       <div className="relative max-w-[85%] lg:max-w-[75%]">
-        
-        {/* User Message: Elegant minimal dark block */}
         {isUser ? (
           <div className="bg-moss-dark text-white rounded-2xl rounded-tr-sm px-5 py-4 shadow-lg shadow-black/5 font-medium leading-relaxed">
             {message}
           </div>
         ) : (
-          /* AI Message: Sophisticated glassmorphism effect */
           <div className="bg-white border border-gray-200/60 rounded-2xl rounded-tl-sm px-6 py-5 shadow-sm leading-relaxed text-gray-800 relative">
-            <div className="whitespace-pre-wrap break-words">{message}</div>
-            
+            <div className="break-words prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: formatMessage(message) }} />
             {format === 'table' && tableData && tableData.length > 0 && renderTable()}
-            
-            {/* Quick Actions for AI Message */}
             <div className="absolute -right-12 top-0 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button 
-                onClick={toggleTTS}
-                className={`p-2 rounded-xl border border-gray-200 transition-all hover:scale-105 shadow-sm ${isPlaying ? 'bg-moss-blue text-white' : 'bg-white text-gray-400 hover:text-moss-dark'}`}
-              >
+              <button onClick={toggleTTS} className={`p-2 rounded-xl border border-gray-200 transition-all hover:scale-105 shadow-sm ${isPlaying ? 'bg-moss-blue text-white' : 'bg-white text-gray-400 hover:text-moss-dark'}`}>
                 {isPlaying ? <VolumeX size={16} /> : <Volume2 size={16} />}
               </button>
             </div>
           </div>
         )}
-
         {timestamp && (
           <div className={`text-[10px] uppercase tracking-widest font-bold mt-2 opacity-40 ${isUser ? 'text-right pr-1' : 'pl-1'}`}>
             {timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

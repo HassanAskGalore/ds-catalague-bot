@@ -375,7 +375,7 @@ export default function ChatWindowWithRhubarb() {
         
         {/* Branding */}
         <div className="absolute bottom-6 left-6 z-30 font-semibold text-white/50 tracking-wider text-xs flex items-center gap-2 drop-shadow-md">
-          <span>RHUBARB LIP-SYNC ENGINE</span>
+          <span>MOSDORFER BOT</span>
         </div>
       </div>
 

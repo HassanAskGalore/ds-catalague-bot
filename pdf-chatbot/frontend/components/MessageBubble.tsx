@@ -36,13 +36,37 @@ export default function MessageBubble({
 
   const formatMessage = (text: string) => {
     let formatted = text;
-    formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    formatted = formatted.replace(/^### (.+)$/gm, '<h3 class="text-lg font-bold mt-4 mb-2">$1</h3>');
-    formatted = formatted.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold mt-4 mb-2">$1</h2>');
-    formatted = formatted.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-4 mb-2">$1</h1>');
-    formatted = formatted.replace(/^[•\-\*] (.+)$/gm, '<li class="ml-4">$1</li>');
-    formatted = formatted.replace(/(<li class="ml-4">.*?<\/li>\n?)+/g, '<ul class="list-disc ml-4 space-y-1 my-2">$&</ul>');
+    
+    // Remove all emojis (using surrogate pairs)
+    formatted = formatted.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '');
+    formatted = formatted.replace(/[\u2600-\u26FF]/g, '');
+    formatted = formatted.replace(/[\u2700-\u27BF]/g, '');
+    
+    // Convert newlines to <br/> FIRST
+    formatted = formatted.replace(/\n/g, '<br/>');
+    
+    // Format markdown bold (must come before italic)
+    formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-moss-dark">$1</strong>');
+    
+    // Format markdown italic
+    formatted = formatted.replace(/\*(.+?)\*(?!\*)/g, '<em>$1</em>');
+    
+    // Format headers
+    formatted = formatted.replace(/^###\s+(.+?)(<br\/>|$)/gm, '<h3 class="text-lg font-bold mt-4 mb-2">$1</h3>');
+    formatted = formatted.replace(/^##\s+(.+?)(<br\/>|$)/gm, '<h2 class="text-xl font-bold mt-4 mb-2">$1</h2>');
+    formatted = formatted.replace(/^#\s+(.+?)(<br\/>|$)/gm, '<h1 class="text-2xl font-bold mt-4 mb-2">$1</h1>');
+    
+    // Format numbered lists - handle "1. **Title:** Description" pattern
+    formatted = formatted.replace(/(\d+)\.\s+\*\*(.+?)\*\*:\s*(.+?)(<br\/>|$)/g, 
+      '<div class="my-3 pl-2"><span class="font-bold text-moss-blue">$1. $2:</span> $3</div>');
+    
+    // Format simple numbered lists "1. Text"
+    formatted = formatted.replace(/^(\d+)\.\s+(.+?)(<br\/>|$)/gm, 
+      '<div class="my-2 pl-2"><span class="font-bold text-moss-blue">$1.</span> $2</div>');
+    
+    // Format bullet points
+    formatted = formatted.replace(/^[•\-]\s+(.+?)(<br\/>|$)/gm, '<li class="ml-4 my-1">$1</li>');
+    
     return formatted;
   };
 

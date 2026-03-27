@@ -48,10 +48,24 @@ export default function ChatWindowWithRhubarb() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingStartTimeRef = useRef<number>(0);
+  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      
+      // Setup audio analysis for silence detection
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
       
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus'
@@ -59,6 +73,40 @@ export default function ChatWindowWithRhubarb() {
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       recordingStartTimeRef.current = Date.now();
+
+      // Monitor audio level for silence detection
+      const checkSilence = () => {
+        if (!analyserRef.current || !mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') {
+          return;
+        }
+
+        const bufferLength = analyserRef.current.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyserRef.current.getByteFrequencyData(dataArray);
+        
+        // Calculate average volume
+        const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+        
+        // If volume is low (silence)
+        if (average < 10) {
+          if (!silenceTimeoutRef.current) {
+            // Start silence timer
+            silenceTimeoutRef.current = setTimeout(() => {
+              console.log('[STT] Silence detected, auto-stopping...');
+              stopRecording(true); // Auto-stop and send
+            }, 1500); // 1.5 seconds of silence
+          }
+        } else {
+          // Clear silence timer if sound detected
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current);
+            silenceTimeoutRef.current = null;
+          }
+        }
+        
+        // Continue monitoring
+        requestAnimationFrame(checkSilence);
+      };
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -72,7 +120,9 @@ export default function ChatWindowWithRhubarb() {
         
         if (recordingDuration < 300) {
           alert('Recording too short. Please speak for at least 1 second.');
-          stream.getTracks().forEach(track => track.stop());
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+          }
           return;
         }
         
@@ -104,8 +154,13 @@ export default function ChatWindowWithRhubarb() {
             if (data.success && data.text) {
               console.log('[STT] Recognized:', data.text);
               setInput(data.text);
+              
+              // Auto-send after recognition
+              setTimeout(() => {
+                handleSend(data.text);
+              }, 100);
             } else {
-              alert('No speech recognized. Please:\n1. Speak clearly and loudly\n2. Hold the button while speaking\n3. Speak for at least 2-3 seconds');
+              alert('No speech recognized. Please:\n1. Speak clearly and loudly\n2. Speak for at least 2-3 seconds\n3. Avoid background noise');
             }
           } catch (error) {
             console.error('[STT] Backend error:', error);
@@ -115,12 +170,17 @@ export default function ChatWindowWithRhubarb() {
         reader.readAsDataURL(audioBlob);
         
         // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+        }
       };
 
       mediaRecorder.start();
       setIsRecording(true);
       console.log('[STT] Recording started - speak now...');
+      
+      // Start silence detection
+      checkSilence();
 
     } catch (error) {
       console.error('[STT] Failed to start:', error);
@@ -129,12 +189,25 @@ export default function ChatWindowWithRhubarb() {
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = (autoSend: boolean = false) => {
+    // Clear silence timer
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = null;
+    }
+    
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       console.log('[STT] Stopping recording...');
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
     }
+    
+    // Cleanup audio context
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    
     setIsRecording(false);
   };
 

@@ -584,8 +584,22 @@ def parse_lip_sync(json_file: str, sound_file: str) -> dict:
 
 
 def clean_text_for_speech(text: str) -> str:
-    """Remove markdown and special characters that shouldn't be spoken"""
+    """Remove markdown, emojis, and special characters that shouldn't be spoken"""
     import re
+    
+    # Remove emojis and symbols
+    emoji_pattern = re.compile("["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags
+        u"\U00002702-\U000027B0"  # dingbats
+        u"\U000024C2-\U0001F251"
+        u"\U0001F900-\U0001F9FF"  # supplemental symbols
+        u"\U0001FA00-\U0001FA6F"
+        u"\U00002600-\U000026FF"  # misc symbols
+        "]+", flags=re.UNICODE)
+    text = emoji_pattern.sub('', text)
     
     # Remove markdown formatting
     text = re.sub(r'\*\*\*(.+?)\*\*\*', r'\1', text)  # Bold italic

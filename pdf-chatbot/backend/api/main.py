@@ -369,6 +369,90 @@ async def get_products():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ===== SPEECH-TO-TEXT ENDPOINT =====
+class STTRequest(BaseModel):
+    audio: str  # base64 encoded audio
+
+@app.post("/speech-to-text")
+async def speech_to_text(request: STTRequest):
+    """Convert speech audio to text using Azure Speech"""
+    try:
+        # Decode base64 audio
+        audio_data = base64.b64decode(request.audio)
+        
+        # Save to temp file (browser sends WebM/Opus format)
+        temp_input = os.path.join(OUTPUT_DIR, "temp_stt_input.webm")
+        temp_wav = os.path.join(OUTPUT_DIR, "temp_stt.wav")
+        
+        with open(temp_input, "wb") as f:
+            f.write(audio_data)
+        
+        # Convert to WAV format using FFmpeg
+        try:
+            ffmpeg_cmd = "ffmpeg"
+            
+            # Check common Windows installation paths
+            possible_paths = [
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin\ffmpeg.exe"),
+                r"C:\ffmpeg\bin\ffmpeg.exe",
+                r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    ffmpeg_cmd = path
+                    break
+            
+            # Convert to 16kHz mono WAV for Azure Speech
+            subprocess.run([
+                ffmpeg_cmd, "-y", "-i", temp_input,
+                "-acodec", "pcm_s16le",
+                "-ar", "16000",
+                "-ac", "1",
+                temp_wav
+            ], check=True, capture_output=True)
+            
+        except Exception as conv_error:
+            logger.error(f"Audio conversion failed: {conv_error}")
+            raise HTTPException(status_code=500, detail="Audio format conversion failed. Please ensure FFmpeg is installed.")
+        
+        # Setup Azure Speech recognizer
+        speech_config = speechsdk.SpeechConfig(
+            subscription=AZURE_SPEECH_KEY,
+            region=AZURE_SPEECH_REGION
+        )
+        audio_config = speechsdk.audio.AudioConfig(filename=temp_wav)
+        
+        speech_recognizer = speechsdk.SpeechRecognizer(
+            speech_config=speech_config,
+            audio_config=audio_config
+        )
+        
+        # Recognize speech
+        result = speech_recognizer.recognize_once()
+        
+        # Clean up temp files
+        for temp_file in [temp_input, temp_wav]:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+        
+        if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            return {"text": result.text, "success": True}
+        elif result.reason == speechsdk.ResultReason.NoMatch:
+            return {"text": "", "success": False, "error": "No speech recognized"}
+        elif result.reason == speechsdk.ResultReason.Canceled:
+            cancellation = result.cancellation_details
+            logger.error(f"STT canceled: {cancellation.reason}")
+            raise HTTPException(status_code=500, detail=f"Speech recognition failed: {cancellation.error_details}")
+        
+    except Exception as e:
+        logger.error(f"STT error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
@@ -499,6 +583,41 @@ def parse_lip_sync(json_file: str, sound_file: str) -> dict:
         return None
 
 
+def clean_text_for_speech(text: str) -> str:
+    """Remove markdown and special characters that shouldn't be spoken"""
+    import re
+    
+    # Remove markdown formatting
+    text = re.sub(r'\*\*\*(.+?)\*\*\*', r'\1', text)  # Bold italic
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)      # Bold
+    text = re.sub(r'\*(.+?)\*', r'\1', text)          # Italic
+    text = re.sub(r'__(.+?)__', r'\1', text)          # Bold underscore
+    text = re.sub(r'_(.+?)_', r'\1', text)            # Italic underscore
+    text = re.sub(r'~~(.+?)~~', r'\1', text)          # Strikethrough
+    text = re.sub(r'`(.+?)`', r'\1', text)            # Inline code
+    
+    # Remove markdown headers
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    
+    # Remove links but keep text
+    text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
+    
+    # Remove bullet points and list markers
+    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
+    
+    # Remove extra symbols
+    text = text.replace('#', '')
+    text = text.replace('|', '')
+    text = text.replace('>', '')
+    
+    # Clean up multiple spaces and newlines
+    text = re.sub(r'\n\s*\n', '. ', text)
+    text = re.sub(r'\s+', ' ', text)
+    
+    return text.strip()
+
+
 # ===== LIP-SYNC ENDPOINT =====
 
 class LipSyncRequest(BaseModel):
@@ -525,10 +644,10 @@ async def lip_sync_endpoint(request: LipSyncRequest):
         # Step 1: Get answer from RAG
         from llm.chain import generate_answer
         
-        # Quick search for answer
+        # Quick search for answer (reduced for speed)
         raw_results = searcher.search(
             query=request.message,
-            top_k=5,
+            top_k=3,  # Reduced from 5
             filters=None
         )
         
@@ -536,18 +655,22 @@ async def lip_sync_endpoint(request: LipSyncRequest):
             top_chunks = reranker.rerank(
                 query=request.message,
                 results=raw_results,
-                top_n=3
+                top_n=2  # Reduced from 3
             )
             result = generate_answer(request.message, top_chunks)
             answer = result["answer"]
         else:
             answer = "I don't have information about that in the catalogue."
         
+        # Clean text for speech (remove markdown symbols)
+        speech_text = clean_text_for_speech(answer)
+        logger.info(f"Original text length: {len(answer)}, Cleaned: {len(speech_text)}")
+        
         # Step 2: Validate voice
         voice = SUPPORTED_VOICES.get(request.voice_selection, "en-US-JennyNeural")
         
-        # Step 3: Generate TTS audio
-        wav_file = text_to_speech_azure(answer, voice, request.user_id)
+        # Step 3: Generate TTS audio with cleaned text
+        wav_file = text_to_speech_azure(speech_text, voice, request.user_id)
         if not wav_file:
             raise HTTPException(status_code=500, detail="TTS generation failed")
         

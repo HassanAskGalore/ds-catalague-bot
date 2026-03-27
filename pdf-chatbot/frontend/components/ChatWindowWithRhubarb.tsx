@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Maximize2, Volume2, VolumeX, Globe, Send, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Globe, Send, SlidersHorizontal, Trash2 } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import SourceCard from './SourceCard';
 import SearchFilters from './SearchFilters';
@@ -44,56 +44,96 @@ export default function ChatWindowWithRhubarb() {
     scrollToBottom();
   }, [messages]);
 
-  // ===== SPEECH-TO-TEXT (STT) =====
-  const startRecording = () => {
+  // ===== SPEECH-TO-TEXT (STT) using Azure via Backend =====
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStartTimeRef = useRef<number>(0);
+
+  const startRecording = async () => {
     try {
-      // Check if browser supports Web Speech API
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      if (!SpeechRecognition) {
-        alert('Speech recognition not supported in this browser. Please use Chrome or Edge.');
-        return;
-      }
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      recordingStartTimeRef.current = Date.now();
 
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => {
-        console.log('[STT] Recording started');
-        setIsRecording(true);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
       };
 
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        console.log('[STT] Recognized:', transcript);
-        setInput(transcript);
+      mediaRecorder.onstop = async () => {
+        const recordingDuration = Date.now() - recordingStartTimeRef.current;
+        console.log(`[STT] Recording duration: ${recordingDuration}ms`);
+        
+        if (recordingDuration < 300) {
+          alert('Recording too short. Please speak for at least 1 second.');
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        
+        console.log('[STT] Processing recorded audio...');
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
+        console.log(`[STT] Audio blob size: ${audioBlob.size} bytes`);
+        
+        // Convert to base64
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64Audio = (reader.result as string).split(',')[1];
+          
+          try {
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8005';
+            console.log('[STT] Sending to backend...');
+            const response = await fetch(`${backendUrl}/speech-to-text`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ audio: base64Audio })
+            });
+
+            if (!response.ok) {
+              throw new Error(`STT failed: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('[STT] Response:', data);
+            
+            if (data.success && data.text) {
+              console.log('[STT] Recognized:', data.text);
+              setInput(data.text);
+            } else {
+              alert('No speech recognized. Please:\n1. Speak clearly and loudly\n2. Hold the button while speaking\n3. Speak for at least 2-3 seconds');
+            }
+          } catch (error) {
+            console.error('[STT] Backend error:', error);
+            alert('Speech recognition failed. Please check backend is running.');
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+        
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
       };
 
-      recognition.onerror = (event: any) => {
-        console.error('[STT] Error:', event.error);
-        setIsRecording(false);
-      };
-
-      recognition.onend = () => {
-        console.log('[STT] Recording ended');
-        setIsRecording(false);
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
+      mediaRecorder.start();
+      setIsRecording(true);
+      console.log('[STT] Recording started - speak now...');
 
     } catch (error) {
       console.error('[STT] Failed to start:', error);
-      alert('Failed to start speech recognition. Please check microphone permissions.');
+      alert('Failed to access microphone. Please grant microphone permissions.');
+      setIsRecording(false);
     }
   };
 
   const stopRecording = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      console.log('[STT] Stopping recording...');
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
     }
     setIsRecording(false);
   };
@@ -269,19 +309,32 @@ export default function ChatWindowWithRhubarb() {
       // If autoSpeak is enabled, use lip-sync endpoint (includes answer + audio + lip-sync)
       if (autoSpeak) {
         console.log('[Chat] Using lip-sync endpoint for integrated response');
-        const lipSyncResponse = await fetchLipSync(text, 'user123', 'Female_2');
         
-        const botMessage: Message = {
+        // Show "thinking" message immediately
+        const thinkingMessage: Message = {
           id: (Date.now() + 1).toString(),
-          text: lipSyncResponse.text,
+          text: '...',
           isUser: false,
           timestamp: new Date(),
           format: 'text',
         };
+        setMessages((prev) => [...prev, thinkingMessage]);
+        
+        const lipSyncResponse = await fetchLipSync(text, 'user123', 'Female_2');
+        
+        // Replace thinking message with actual response
+        setMessages((prev) => {
+          const filtered = prev.filter(m => m.id !== thinkingMessage.id);
+          return [...filtered, {
+            id: thinkingMessage.id,
+            text: lipSyncResponse.text,
+            isUser: false,
+            timestamp: new Date(),
+            format: 'text',
+          }];
+        });
 
-        setMessages((prev) => [...prev, botMessage]);
-
-        // Play audio with lip-sync
+        // Play audio with lip-sync immediately
         if (lipSyncResponse.audio) {
           // Stop any currently playing audio
           if (currentAudioRef.current) {
@@ -349,24 +402,19 @@ export default function ChatWindowWithRhubarb() {
       {/* LEFT PANEL: 3D Avatar */}
       <div className="hidden lg:flex lg:w-[35%] h-full relative z-20 border-r border-[#e2e8f0] shadow-xl items-center justify-center bg-[#0a0c10]">
         
-        {/* Floating Action Buttons */}
-        <div className="absolute top-6 left-6 flex gap-3 z-30">
-          <button className="p-3 bg-white/10 backdrop-blur-xl rounded-full border border-white/20 text-white hover:bg-white/20 hover:scale-105 transition-all shadow-lg">
-            <Maximize2 size={18} />
-          </button>
+        {/* Voice Toggle Button */}
+        <div className="absolute top-6 right-6 z-30">
           <button 
-            onClick={() => isSpeaking ? stopSpeaking() : setAutoSpeak(!autoSpeak)}
-            className={`p-3 backdrop-blur-xl rounded-full border border-white/20 text-white hover:scale-105 transition-all shadow-lg ${isSpeaking || autoSpeak ? 'bg-moss-blue/80' : 'bg-white/10 hover:bg-white/20'}`}
-            title={isSpeaking ? 'Stop Speaking' : autoSpeak ? 'Auto-speak ON' : 'Auto-speak OFF'}
+            onClick={() => {
+              if (isSpeaking) {
+                stopSpeaking();
+              }
+              setAutoSpeak(!autoSpeak);
+            }}
+            className={`p-3 backdrop-blur-xl rounded-full border border-white/20 text-white hover:scale-105 transition-all shadow-lg ${autoSpeak ? 'bg-moss-blue/80' : 'bg-white/10 hover:bg-white/20'}`}
+            title={autoSpeak ? 'Voice ON - Click to disable' : 'Voice OFF - Click to enable'}
           >
-            {isSpeaking ? <VolumeX size={18} /> : <Volume2 size={18} />}
-          </button>
-          <button 
-            onClick={() => speakText('Hello, this is a test of the text to speech system with Rhubarb lip sync.')}
-            className="p-3 bg-green-500/80 backdrop-blur-xl rounded-full border border-white/20 text-white hover:bg-green-600/80 hover:scale-105 transition-all shadow-lg"
-            title="Test TTS"
-          >
-            🎤
+            {autoSpeak ? <Volume2 size={20} /> : <VolumeX size={20} />}
           </button>
         </div>
 

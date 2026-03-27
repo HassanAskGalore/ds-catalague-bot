@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Morph Target Test</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body style="margin: 0; overflow: hidden;">
+  <div id="info" style="position: absolute; top: 10px; left: 10px; color: white; font-family: monospace; background: rgba(0,0,0,0.7); padding: 10px; z-index: 100;">
+    <div>Press keys to test morphs:</div>
+    <div>1 = Jaw_Open (1.0)</div>
+    <div>2 = AE (1.0)</div>
+    <div>3 = W_OO (1.0)</div>
+    <div>4 = B_M_P (1.0)</div>
+    <div>0 = Reset all</div>
+    <div id="status"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0.3, 2.2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.7, 0);
+    controls.update();
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    dirLight.position.set(5, 5, 5);
+    scene.add(dirLight);
+
+    let meshWithMorphs = null;
+
+    // Load model
+    const loader = new GLTFLoader();
+    loader.load('/Shyla.glb', (gltf) => {
+      const model = gltf.scene;
+      model.scale.set(4.3, 4.3, 4.3);
+      model.position.set(0, -6, 0);
+      scene.add(model);
+
+      // Find mesh with morphs
+      model.traverse((child) => {
+        if (child.isMesh && child.morphTargetInfluences && child.morphTargetInfluences.length > 0) {
+          meshWithMorphs = child;
+          console.log('Found mesh:', child.name);
+          console.log('Morph targets:', child.morphTargetInfluences.length);
+          console.log('Dictionary:', Object.keys(child.morphTargetDictionary).slice(0, 20));
+          document.getElementById('status').innerHTML = `<div style="color: lime;">Model loaded! ${child.morphTargetInfluences.length} morphs found</div>`;
+        }
+      });
+    });
+
+    // Keyboard controls
+    document.addEventListener('keydown', (e) => {
+      if (!meshWithMorphs) return;
+
+      const dict = meshWithMorphs.morphTargetDictionary;
+      const influences = meshWithMorphs.morphTargetInfluences;
+
+      switch(e.key) {
+        case '1':
+          if (dict['Jaw_Open'] !== undefined) {
+            influences[dict['Jaw_Open']] = 1.0;
+            console.log('Set Jaw_Open = 1.0');
+          }
+          break;
+        case '2':
+          if (dict['AE'] !== undefined) {
+            influences[dict['AE']] = 1.0;
+            console.log('Set AE = 1.0');
+          }
+          break;
+        case '3':
+          if (dict['W_OO'] !== undefined) {
+            influences[dict['W_OO']] = 1.0;
+            console.log('Set W_OO = 1.0');
+          }
+          break;
+        case '4':
+          if (dict['B_M_P'] !== undefined) {
+            influences[dict['B_M_P']] = 1.0;
+            console.log('Set B_M_P = 1.0');
+          }
+          break;
+        case '0':
+          for (let i = 0; i < influences.length; i++) {
+            influences[i] = 0;
+          }
+          console.log('Reset all morphs');
+          break;
+      }
+    });
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

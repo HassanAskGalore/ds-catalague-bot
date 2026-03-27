@@ -2,358 +2,292 @@
 
 import React, { Suspense, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { useGLTF, OrbitControls, Environment, Html } from '@react-three/drei';
+import { useGLTF, OrbitControls, Environment, Html, useAnimations } from '@react-three/drei';
 import * as THREE from 'three';
 
-interface ShylaModelProps {
+interface ShaylaModelProps {
   isSpeaking: boolean;
-  currentMouthShape: string;  // Rhubarb shapes: A, B, C, D, E, F, G, H, X
+  currentMouthShape: string;
 }
 
-function ShylaModel({ isSpeaking, currentMouthShape }: ShylaModelProps) {
-  const { scene } = useGLTF('/Shyla.glb');
+// Rhubarb to Shayla viseme mapping
+const corresponding = {
+  A: "V_p1",
+  B: "EE",
+  C: "V_i1",
+  D: "Ah",
+  E: "V_o1",
+  F: "V_u1",
+  G: "V_f1",
+  H: "V_s2",
+  X: "Er"
+};
+
+function ShaylaModel({ isSpeaking, currentMouthShape }: ShaylaModelProps) {
+  const { nodes, materials, scene } = useGLTF('/Shayla_Changes(Visemes).glb');
+  const { animations } = useGLTF('/working.glb');
   const group = useRef<THREE.Group>(null);
-  const meshWithMorphTargetsRef = useRef<any>(null);
+  const { actions } = useAnimations(animations, group);
   const lastBlinkTime = useRef(0);
   const nextBlinkDelay = useRef(3);
-  const eyeLookTarget = useRef({ x: 0, y: 0 });
-  const nextEyeMoveTime = useRef(0);
+  const morphTargetsInitialized = useRef(false);
 
-  // Find mesh with morph targets on mount
   useEffect(() => {
-    if (scene && !meshWithMorphTargetsRef.current) {
+    // Play the Talking animation
+    if (actions['Talking']) {
+      actions['Talking']?.reset().fadeIn(0.5).play();
+    }
+    return () => {
+      if (actions['Talking']) {
+        actions['Talking']?.fadeOut(0.5);
+      }
+    };
+  }, [actions]);
+
+  // Debug morph targets on mount
+  useEffect(() => {
+    if (!morphTargetsInitialized.current) {
+      console.log('[Avatar] Initializing morph targets...');
       scene.traverse((child: any) => {
-        if (child.isMesh && child.morphTargetInfluences && child.morphTargetInfluences.length > 0) {
-          meshWithMorphTargetsRef.current = child;
-          console.log(`[Avatar] Found mesh with ${child.morphTargetInfluences.length} morph targets`);
-          if (child.morphTargetDictionary) {
-            const allMorphs = Object.keys(child.morphTargetDictionary);
-            console.log('[Avatar] Total morphs:', allMorphs.length);
-            
-            // Log phoneme morphs
-            const phonemeMorphs = allMorphs.filter(m => 
-              ['EE_1', 'Er', 'IH', 'Ah', 'Oh', 'W_OO', 'S_Z', 'Ch_J', 'F_V', 'TH', 'T_L_D_N', 'B_M_P', 'K_G_H_NG', 'AE', 'R'].some(p => m === p)
-            );
-            console.log('[Avatar] Phoneme morphs:', phonemeMorphs);
-            
-            // Log mouth morphs
-            const mouthMorphs = allMorphs.filter(m => m.startsWith('Mouth_'));
-            console.log('[Avatar] Mouth morphs:', mouthMorphs.slice(0, 20));
-            
-            // Log jaw morphs
-            const jawMorphs = allMorphs.filter(m => m.startsWith('Jaw_'));
-            console.log('[Avatar] Jaw morphs:', jawMorphs);
-          }
+        if (child.isSkinnedMesh && child.morphTargetDictionary) {
+          console.log('[Avatar] Found mesh:', child.name);
+          console.log('[Avatar] Morph targets:', Object.keys(child.morphTargetDictionary).slice(0, 20));
+          
+          // Check if visemes exist
+          const visemes = ['V_p1', 'EE', 'V_i1', 'Ah', 'V_o1', 'V_u1', 'V_f1', 'V_s2', 'Er'];
+          visemes.forEach(v => {
+            if (child.morphTargetDictionary[v] !== undefined) {
+              console.log(`[Avatar] ✓ Found viseme: ${v} at index ${child.morphTargetDictionary[v]}`);
+            }
+          });
         }
       });
+      morphTargetsInitialized.current = true;
     }
   }, [scene]);
 
+  const lerpMorphTarget = (target: string, value: number, speed: number = 0.15) => {
+    let found = false;
+    scene.traverse((child: any) => {
+      if (child.isSkinnedMesh && child.morphTargetDictionary && child.morphTargetInfluences) {
+        const index = child.morphTargetDictionary[target];
+        if (index !== undefined) {
+          const current = child.morphTargetInfluences[index];
+          child.morphTargetInfluences[index] = THREE.MathUtils.lerp(current, value, speed);
+          found = true;
+        }
+      }
+    });
+    
+    // Log if morph target not found (only occasionally to avoid spam)
+    if (!found && Math.random() < 0.01) {
+      console.warn(`[Avatar] Morph target not found: ${target}`);
+    }
+  };
+
   useFrame((state) => {
     const time = state.clock.elapsedTime;
-    const mesh = meshWithMorphTargetsRef.current;
-    
-    if (!mesh || !mesh.morphTargetInfluences || !mesh.morphTargetDictionary) return;
 
-    // ===== HEAD MOVEMENT =====
-    if (group.current) {
-      if (isSpeaking) {
-        // Natural head movement during speech - NO vertical floating
-        group.current.rotation.y = Math.sin(time * 0.8) * 0.05 + Math.sin(time * 2.3) * 0.02;
-        group.current.rotation.x = Math.sin(time * 1.2) * 0.03 + Math.cos(time * 1.8) * 0.015;
-        group.current.rotation.z = Math.sin(time * 1.5) * 0.01;
-        // REMOVED: group.current.position.y animation (was causing floating)
-      } else {
-        // Subtle idle breathing - NO vertical floating
-        group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, Math.sin(time * 0.5) * 0.01, 0.05);
-        group.current.rotation.x = THREE.MathUtils.lerp(group.current.rotation.x, Math.sin(time * 0.7) * 0.008, 0.05);
-        group.current.rotation.z = THREE.MathUtils.lerp(group.current.rotation.z, 0, 0.05);
-        // REMOVED: group.current.position.y animation (was causing floating)
-      }
+    // ===== BLINKING =====
+    if (time - lastBlinkTime.current > nextBlinkDelay.current) {
+      lastBlinkTime.current = time;
+      nextBlinkDelay.current = 2 + Math.random() * 4;
     }
 
-    // ===== EYE BLINKING =====
-    const blinkL = mesh.morphTargetDictionary['Eye_Blink_L'];
-    const blinkR = mesh.morphTargetDictionary['Eye_Blink_R'];
-    
-    if (blinkL !== undefined && blinkR !== undefined) {
-      if (time - lastBlinkTime.current > nextBlinkDelay.current) {
-        // Trigger blink
-        lastBlinkTime.current = time;
-        nextBlinkDelay.current = 2 + Math.random() * 4; // Random 2-6 seconds
-      }
-      
-      const timeSinceBlink = time - lastBlinkTime.current;
-      let blinkValue = 0;
-      
-      if (timeSinceBlink < 0.1) {
-        // Closing (100ms)
-        blinkValue = timeSinceBlink / 0.1;
-      } else if (timeSinceBlink < 0.2) {
-        // Opening (100ms)
-        blinkValue = 1 - (timeSinceBlink - 0.1) / 0.1;
-      }
-      
-      mesh.morphTargetInfluences[blinkL] = blinkValue;
-      mesh.morphTargetInfluences[blinkR] = blinkValue;
+    const timeSinceBlink = time - lastBlinkTime.current;
+    let blinkValue = 0;
+    if (timeSinceBlink < 0.1) {
+      blinkValue = timeSinceBlink / 0.1;
+    } else if (timeSinceBlink < 0.2) {
+      blinkValue = 1 - (timeSinceBlink - 0.1) / 0.1;
     }
 
-    // ===== EYE MOVEMENT =====
-    if (time > nextEyeMoveTime.current) {
-      eyeLookTarget.current = {
-        x: (Math.random() - 0.5) * 0.3,
-        y: (Math.random() - 0.5) * 0.2
-      };
-      nextEyeMoveTime.current = time + 2 + Math.random() * 3;
-    }
+    lerpMorphTarget('Eye_Blink_L', blinkValue, 0.5);
+    lerpMorphTarget('Eye_Blink_R', blinkValue, 0.5);
 
-    const eyeLookLeft = mesh.morphTargetDictionary['Eye_L_Look_L'];
-    const eyeLookRight = mesh.morphTargetDictionary['Eye_L_Look_R'];
-    const eyeLookUp = mesh.morphTargetDictionary['Eye_L_Look_Up'];
-    const eyeLookDown = mesh.morphTargetDictionary['Eye_L_Look_Down'];
-    const eyeRLookLeft = mesh.morphTargetDictionary['Eye_R_Look_L'];
-    const eyeRLookRight = mesh.morphTargetDictionary['Eye_R_Look_R'];
-    const eyeRLookUp = mesh.morphTargetDictionary['Eye_R_Look_Up'];
-    const eyeRLookDown = mesh.morphTargetDictionary['Eye_R_Look_Down'];
-
-    if (eyeLookLeft !== undefined) {
-      const targetX = eyeLookTarget.current.x;
-      const targetY = eyeLookTarget.current.y;
-      
-      // Left eye
-      mesh.morphTargetInfluences[eyeLookLeft] = THREE.MathUtils.lerp(
-        mesh.morphTargetInfluences[eyeLookLeft], 
-        Math.max(0, -targetX), 
-        0.05
-      );
-      mesh.morphTargetInfluences[eyeLookRight] = THREE.MathUtils.lerp(
-        mesh.morphTargetInfluences[eyeLookRight], 
-        Math.max(0, targetX), 
-        0.05
-      );
-      mesh.morphTargetInfluences[eyeLookUp] = THREE.MathUtils.lerp(
-        mesh.morphTargetInfluences[eyeLookUp], 
-        Math.max(0, targetY), 
-        0.05
-      );
-      mesh.morphTargetInfluences[eyeLookDown] = THREE.MathUtils.lerp(
-        mesh.morphTargetInfluences[eyeLookDown], 
-        Math.max(0, -targetY), 
-        0.05
-      );
-      
-      // Right eye
-      mesh.morphTargetInfluences[eyeRLookLeft] = THREE.MathUtils.lerp(
-        mesh.morphTargetInfluences[eyeRLookLeft], 
-        Math.max(0, -targetX), 
-        0.05
-      );
-      mesh.morphTargetInfluences[eyeRLookRight] = THREE.MathUtils.lerp(
-        mesh.morphTargetInfluences[eyeRLookRight], 
-        Math.max(0, targetX), 
-        0.05
-      );
-      mesh.morphTargetInfluences[eyeRLookUp] = THREE.MathUtils.lerp(
-        mesh.morphTargetInfluences[eyeRLookUp], 
-        Math.max(0, targetY), 
-        0.05
-      );
-      mesh.morphTargetInfluences[eyeRLookDown] = THREE.MathUtils.lerp(
-        mesh.morphTargetInfluences[eyeRLookDown], 
-        Math.max(0, -targetY), 
-        0.05
-      );
-    }
-
-    // ===== FACIAL EXPRESSIONS DURING SPEECH =====
-    if (isSpeaking) {
-      // Subtle eyebrow raises
-      const browRaiseL = mesh.morphTargetDictionary['Brow_Raise_Outer_L'];
-      const browRaiseR = mesh.morphTargetDictionary['Brow_Raise_Outer_R'];
-      if (browRaiseL !== undefined) {
-        const browValue = Math.sin(time * 2) * 0.1 + 0.1;
-        mesh.morphTargetInfluences[browRaiseL] = THREE.MathUtils.lerp(
-          mesh.morphTargetInfluences[browRaiseL], 
-          browValue, 
-          0.1
-        );
-        mesh.morphTargetInfluences[browRaiseR] = THREE.MathUtils.lerp(
-          mesh.morphTargetInfluences[browRaiseR], 
-          browValue, 
-          0.1
-        );
-      }
-      
-      // Slight cheek raise for natural expression
-      const cheekRaiseL = mesh.morphTargetDictionary['Cheek_Raise_L'];
-      const cheekRaiseR = mesh.morphTargetDictionary['Cheek_Raise_R'];
-      if (cheekRaiseL !== undefined) {
-        mesh.morphTargetInfluences[cheekRaiseL] = THREE.MathUtils.lerp(
-          mesh.morphTargetInfluences[cheekRaiseL], 
-          0.15, 
-          0.1
-        );
-        mesh.morphTargetInfluences[cheekRaiseR] = THREE.MathUtils.lerp(
-          mesh.morphTargetInfluences[cheekRaiseR], 
-          0.15, 
-          0.1
-        );
+    // ===== LIP SYNC =====
+    if (isSpeaking && currentMouthShape !== 'X') {
+      const morphName = corresponding[currentMouthShape as keyof typeof corresponding];
+      if (morphName) {
+        // Log every 30 frames (roughly once per second at 60fps)
+        if (Math.random() < 0.05) {
+          console.log(`[Avatar] Applying viseme: ${currentMouthShape} → ${morphName} (value: 0.8)`);
+        }
+        
+        lerpMorphTarget(morphName, 0.8, 0.4);
+        
+        // Reset other visemes
+        Object.values(corresponding).forEach((otherMorph) => {
+          if (otherMorph !== morphName) {
+            lerpMorphTarget(otherMorph, 0, 0.3);
+          }
+        });
       }
     } else {
-      // Reset expression morphs when not speaking
-      ['Brow_Raise_Outer_L', 'Brow_Raise_Outer_R', 'Cheek_Raise_L', 'Cheek_Raise_R'].forEach(name => {
-        const idx = mesh.morphTargetDictionary[name];
-        if (idx !== undefined) {
-          mesh.morphTargetInfluences[idx] = THREE.MathUtils.lerp(
-            mesh.morphTargetInfluences[idx], 
-            0, 
-            0.1
-          );
+      // Reset to neutral
+      lerpMorphTarget(corresponding.X, 0.2, 0.2);
+      Object.values(corresponding).forEach((morphName) => {
+        if (morphName !== corresponding.X) {
+          lerpMorphTarget(morphName, 0, 0.2);
         }
       });
     }
 
-    // ===== LIP SYNC (RHUBARB ONLY) =====
-    const morphTargets = getRhubarbMorphTargets(currentMouthShape);
-    
-    // Debug: Log when we receive a new mouth shape
-    if (currentMouthShape !== 'X' && isSpeaking) {
-      const activeTargets = Object.keys(morphTargets).filter(k => morphTargets[k] > 0);
-      if (activeTargets.length > 0) {
-        console.log(`[Rhubarb] Shape ${currentMouthShape}:`, activeTargets.join(', '));
-      }
+    // ===== FACIAL EXPRESSION =====
+    if (isSpeaking) {
+      lerpMorphTarget('Mouth_Smile_L', 0.1, 0.05);
+      lerpMorphTarget('Mouth_Smile_R', 0.1, 0.05);
+      lerpMorphTarget('Brow_Raise_Outer_L', 0.15, 0.05);
+      lerpMorphTarget('Brow_Raise_Outer_R', 0.15, 0.05);
+    } else {
+      lerpMorphTarget('Mouth_Smile_L', 0, 0.05);
+      lerpMorphTarget('Mouth_Smile_R', 0, 0.05);
+      lerpMorphTarget('Brow_Raise_Outer_L', 0, 0.05);
+      lerpMorphTarget('Brow_Raise_Outer_R', 0, 0.05);
     }
-    
-    Object.keys(mesh.morphTargetDictionary).forEach((targetName) => {
-      const targetIndex = mesh.morphTargetDictionary[targetName];
-      
-      // Skip eye and brow morphs (handled above)
-      if (targetName.includes('Eye_') || targetName.includes('Brow_') || 
-          targetName.includes('Cheek_') || targetName.includes('Eyelash_')) {
-        return;
-      }
-      
-      if (isSpeaking && morphTargets[targetName] !== undefined) {
-        const oldValue = mesh.morphTargetInfluences[targetIndex];
-        const targetValue = morphTargets[targetName];
-        
-        // Apply lip sync morph with fast interpolation
-        mesh.morphTargetInfluences[targetIndex] = THREE.MathUtils.lerp(
-          oldValue,
-          targetValue,
-          0.8  // Very fast response for Rhubarb
-        );
-        
-        // Debug: Log significant changes
-        if (Math.abs(mesh.morphTargetInfluences[targetIndex] - oldValue) > 0.1) {
-          console.log(`[Rhubarb] ${targetName}: ${oldValue.toFixed(2)} → ${mesh.morphTargetInfluences[targetIndex].toFixed(2)}`);
-        }
-      } else if (isPhonemeTarget(targetName)) {
-        // Reset phoneme morphs
-        mesh.morphTargetInfluences[targetIndex] = THREE.MathUtils.lerp(
-          mesh.morphTargetInfluences[targetIndex],
-          0,
-          0.5
-        );
-      }
-    });
   });
 
   return (
     <group ref={group} dispose={null}>
-      <primitive object={scene} scale={4.3} position={[0, -6, 0]} />
+      <mesh
+        castShadow
+        receiveShadow
+        geometry={(nodes as any).glb_bg_1?.geometry}
+        material={(materials as any)['glb_bg 1']}
+        position={[0, 1.456, -0.197]}
+        rotation={[1.523, 0, 0]}
+      />
+      <skinnedMesh
+        geometry={(nodes as any).Bang?.geometry}
+        material={(materials as any)['Hair_Transparency.003']}
+        skeleton={(nodes as any).Bang?.skeleton}
+      />
+      <skinnedMesh
+        geometry={(nodes as any).Fit_shirts?.geometry}
+        material={(materials as any).Fit_shirts}
+        skeleton={(nodes as any).Fit_shirts?.skeleton}
+      />
+      <skinnedMesh
+        geometry={(nodes as any).Real_Hair?.geometry}
+        material={(materials as any)['Hair_Transparency.002']}
+        skeleton={(nodes as any).Real_Hair?.skeleton}
+      />
+      <primitive object={(nodes as any).CC_Base_BoneRoot} />
+      <skinnedMesh
+        name="CC_Base_Body_1"
+        geometry={(nodes as any).CC_Base_Body_1?.geometry}
+        material={(materials as any).Std_Tongue}
+        skeleton={(nodes as any).CC_Base_Body_1?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_1?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_1?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_Body_2"
+        geometry={(nodes as any).CC_Base_Body_2?.geometry}
+        material={(materials as any).Std_Skin_Head}
+        skeleton={(nodes as any).CC_Base_Body_2?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_2?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_2?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_Body_3"
+        geometry={(nodes as any).CC_Base_Body_3?.geometry}
+        material={(materials as any).Std_Eyelash}
+        skeleton={(nodes as any).CC_Base_Body_3?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_3?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_3?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_Body_4"
+        geometry={(nodes as any).CC_Base_Body_4?.geometry}
+        material={(materials as any).Std_Upper_Teeth}
+        skeleton={(nodes as any).CC_Base_Body_4?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_4?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_4?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_Body_5"
+        geometry={(nodes as any).CC_Base_Body_5?.geometry}
+        material={(materials as any).Std_Lower_Teeth}
+        skeleton={(nodes as any).CC_Base_Body_5?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_5?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_5?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_Body_6"
+        geometry={(nodes as any).CC_Base_Body_6?.geometry}
+        material={(materials as any).Std_Eye_R}
+        skeleton={(nodes as any).CC_Base_Body_6?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_6?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_6?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_Body_7"
+        geometry={(nodes as any).CC_Base_Body_7?.geometry}
+        material={(materials as any).Std_Cornea_R}
+        skeleton={(nodes as any).CC_Base_Body_7?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_7?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_7?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_Body_8"
+        geometry={(nodes as any).CC_Base_Body_8?.geometry}
+        material={(materials as any).Std_Eye_L}
+        skeleton={(nodes as any).CC_Base_Body_8?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_8?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_8?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_Body_9"
+        geometry={(nodes as any).CC_Base_Body_9?.geometry}
+        material={(materials as any).Std_Cornea_L}
+        skeleton={(nodes as any).CC_Base_Body_9?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_Body_9?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_Body_9?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_TearLine_1"
+        geometry={(nodes as any).CC_Base_TearLine_1?.geometry}
+        material={(materials as any).Std_Tearline_R}
+        skeleton={(nodes as any).CC_Base_TearLine_1?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_TearLine_1?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_TearLine_1?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        name="CC_Base_TearLine_2"
+        geometry={(nodes as any).CC_Base_TearLine_2?.geometry}
+        material={(materials as any).Std_Tearline_L}
+        skeleton={(nodes as any).CC_Base_TearLine_2?.skeleton}
+        morphTargetDictionary={(nodes as any).CC_Base_TearLine_2?.morphTargetDictionary}
+        morphTargetInfluences={(nodes as any).CC_Base_TearLine_2?.morphTargetInfluences}
+      />
+      <skinnedMesh
+        geometry={(nodes as any).Hair_Base_1?.geometry}
+        material={(materials as any).Hair_Transparency}
+        skeleton={(nodes as any).Hair_Base_1?.skeleton}
+      />
+      <skinnedMesh
+        geometry={(nodes as any).Hair_Base_2?.geometry}
+        material={(materials as any).Scalp_Transparency}
+        skeleton={(nodes as any).Hair_Base_2?.skeleton}
+      />
     </group>
   );
 }
 
-// Helper to identify phoneme morph targets
-function isPhonemeTarget(name: string): boolean {
-  const phonemes = ['EE_1', 'Er', 'IH', 'Ah', 'Oh', 'W_OO', 'S_Z', 'Ch_J', 
-                    'F_V', 'TH', 'T_L_D_N', 'B_M_P', 'K_G_H_NG', 'AE', 'R'];
-  return phonemes.some(p => name.startsWith(p)) || 
-         name.startsWith('Mouth_') || 
-         name.startsWith('Jaw_');
-}
-
-
-// Map Rhubarb mouth shapes (A-H, X) to Shyla's 711 morph targets
-function getRhubarbMorphTargets(shape: string): { [key: string]: number } {
-  const shapeMap: { [key: string]: { [key: string]: number } } = {
-    'A': {  // Closed mouth - P, B, M
-      'B_M_P': 1.0,
-      'Mouth_Press_L': 0.4,
-      'Mouth_Press_R': 0.4
-    },
-    
-    'B': {  // Slightly open, clenched teeth - K, S, T, EE
-      'S_Z': 0.6,
-      'EE_1': 0.5,
-      'Mouth_Stretch_L': 0.4,
-      'Mouth_Stretch_R': 0.4,
-      'Jaw_Open': 0.2
-    },
-    
-    'C': {  // Open mouth - EH, AE
-      'AE': 0.9,
-      'Jaw_Open': 0.5,
-      'Mouth_Open': 0.5,
-      'Mouth_Stretch_L': 0.3,
-      'Mouth_Stretch_R': 0.3
-    },
-    
-    'D': {  // Wide open mouth - AA (father)
-      'Ah': 1.0,
-      'Jaw_Open': 0.9,
-      'Mouth_Open': 0.8
-    },
-    
-    'E': {  // Slightly rounded - AO, ER (off, bird)
-      'Er': 0.8,
-      'Oh': 0.6,
-      'Mouth_Funnel_Up_L': 0.4,
-      'Mouth_Funnel_Up_R': 0.4,
-      'Jaw_Open': 0.4
-    },
-    
-    'F': {  // Puckered lips - UW, OW, W (you, show)
-      'W_OO': 1.0,
-      'Mouth_Pucker_Up_L': 0.9,
-      'Mouth_Pucker_Up_R': 0.9,
-      'Mouth_Funnel_Up_L': 0.5,
-      'Mouth_Funnel_Up_R': 0.5
-    },
-    
-    'G': {  // Upper teeth on lower lip - F, V
-      'F_V': 1.0,
-      'Mouth_Lower_Down_L': 0.5,
-      'Mouth_Lower_Down_R': 0.5
-    },
-    
-    'H': {  // Tongue raised - long L
-      'T_L_D_N': 0.9,
-      'Jaw_Open': 0.3,
-      'Mouth_Open': 0.3
-    },
-    
-    'X': {}  // Rest position - all morphs at 0
-  };
-
-  return shapeMap[shape] || {};
-}
-
-
-useGLTF.preload('/Shyla.glb');
+useGLTF.preload('/Shayla_Changes(Visemes).glb');
+useGLTF.preload('/working.glb');
 
 function FallbackImage() {
   return (
     <Html center>
-      <img src="/Shyla.webp" alt="Shyla Avatar Loading" className="max-w-xs animate-pulse object-contain h-64 rounded-xl shadow-lg border-2 border-moss-blue/20" />
+      <div className="text-white">Loading Avatar...</div>
     </Html>
   );
 }
 
 export interface AvatarHandle {
-  setMouthShape: (shape: string) => void;  // Rhubarb shapes: A, B, C, D, E, F, G, H, X
+  setMouthShape: (shape: string) => void;
   reset: () => void;
 }
 
@@ -364,11 +298,21 @@ interface AvatarProps {
 const AvatarWithLipSync = forwardRef<AvatarHandle, AvatarProps>(({ isSpeaking = false }, ref) => {
   const [currentMouthShape, setCurrentMouthShape] = React.useState('X');
 
+  useEffect(() => {
+    console.log('[Avatar] isSpeaking changed to:', isSpeaking);
+  }, [isSpeaking]);
+
+  useEffect(() => {
+    console.log('[Avatar] currentMouthShape changed to:', currentMouthShape);
+  }, [currentMouthShape]);
+
   useImperativeHandle(ref, () => ({
     setMouthShape: (shape: string) => {
+      console.log('[Avatar] Setting mouth shape:', shape);
       setCurrentMouthShape(shape);
     },
     reset: () => {
+      console.log('[Avatar] Resetting to idle');
       setCurrentMouthShape('X');
     }
   }));
@@ -389,7 +333,7 @@ const AvatarWithLipSync = forwardRef<AvatarHandle, AvatarProps>(({ isSpeaking = 
           <Environment preset="city" />
           
           <Suspense fallback={<FallbackImage />}>
-            <ShylaModel isSpeaking={isSpeaking} currentMouthShape={currentMouthShape} />
+            <ShaylaModel isSpeaking={isSpeaking} currentMouthShape={currentMouthShape} />
           </Suspense>
 
           <OrbitControls 
@@ -404,7 +348,6 @@ const AvatarWithLipSync = forwardRef<AvatarHandle, AvatarProps>(({ isSpeaking = 
         </Canvas>
       </div>
 
-      {/* Fade out bottom to hide mesh cutoff gracefully */}
       <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-[#001c38] to-transparent pointer-events-none z-20" />
     </div>
   );

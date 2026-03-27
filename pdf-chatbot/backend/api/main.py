@@ -398,20 +398,42 @@ def text_to_speech_azure(text: str, voice: str, session_id: str) -> str:
         if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
             logger.info(f"TTS audio generated: {wav_file}")
             return wav_file
+        elif result.reason == speechsdk.ResultReason.Canceled:
+            cancellation = result.cancellation_details
+            logger.error(f"TTS canceled: {cancellation.reason}")
+            logger.error(f"Error details: {cancellation.error_details}")
+            return None
         else:
             logger.error(f"TTS failed: {result.reason}")
             return None
             
     except Exception as e:
-        logger.error(f"TTS error: {e}")
+        logger.error(f"TTS error: {e}", exc_info=True)
         return None
 
 
 def convert_wav_to_pcm(input_wav: str, output_wav: str) -> str:
     """Convert WAV to PCM format for Rhubarb"""
     try:
+        # Try to find ffmpeg
+        ffmpeg_cmd = "ffmpeg"
+        
+        # Check common Windows installation paths
+        possible_paths = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin\ffmpeg.exe"),
+            r"C:\ffmpeg\bin\ffmpeg.exe",
+            r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+            r"C:\ProgramData\chocolatey\bin\ffmpeg.exe"
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                ffmpeg_cmd = path
+                logger.info(f"Found FFmpeg at: {path}")
+                break
+        
         subprocess.run([
-            "ffmpeg", "-y", "-i", input_wav,
+            ffmpeg_cmd, "-y", "-i", input_wav,
             "-acodec", "pcm_s16le",
             "-ar", "16000",
             output_wav
@@ -422,6 +444,9 @@ def convert_wav_to_pcm(input_wav: str, output_wav: str) -> str:
         
     except subprocess.CalledProcessError as e:
         logger.error(f"FFmpeg conversion failed: {e.stderr.decode()}")
+        return None
+    except FileNotFoundError:
+        logger.error("FFmpeg not found. Please install FFmpeg or add it to PATH")
         return None
     except Exception as e:
         logger.error(f"Conversion error: {e}")
@@ -526,16 +551,22 @@ async def lip_sync_endpoint(request: LipSyncRequest):
         if not wav_file:
             raise HTTPException(status_code=500, detail="TTS generation failed")
         
-        # Step 4: Convert to PCM
-        pcm_file = os.path.join(OUTPUT_DIR, f"{request.user_id}_pcm.wav")
-        pcm_file = convert_wav_to_pcm(wav_file, pcm_file)
-        if not pcm_file:
-            raise HTTPException(status_code=500, detail="Audio conversion failed")
+        # Step 4: Try to use Azure WAV directly with Rhubarb first
+        # If that fails, try PCM conversion
+        json_file = generate_lip_sync(wav_file, request.user_id)
         
-        # Step 5: Generate lip-sync
-        json_file = generate_lip_sync(pcm_file, request.user_id)
         if not json_file:
-            raise HTTPException(status_code=500, detail="Lip-sync generation failed")
+            # Try PCM conversion as fallback
+            logger.info("Direct WAV failed, attempting PCM conversion...")
+            pcm_file = os.path.join(OUTPUT_DIR, f"{request.user_id}_pcm.wav")
+            pcm_file = convert_wav_to_pcm(wav_file, pcm_file)
+            if not pcm_file:
+                raise HTTPException(status_code=500, detail="Audio conversion failed")
+            
+            # Try lip-sync with converted audio
+            json_file = generate_lip_sync(pcm_file, request.user_id)
+            if not json_file:
+                raise HTTPException(status_code=500, detail="Lip-sync generation failed")
         
         # Step 6: Parse lip-sync data
         lip_sync_data = parse_lip_sync(json_file, wav_file)

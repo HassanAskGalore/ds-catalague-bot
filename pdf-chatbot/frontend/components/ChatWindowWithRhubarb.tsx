@@ -1,16 +1,13 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { Mic, MicOff, Maximize2, Volume2, VolumeX, Globe, Send, SlidersHorizontal, Trash2 } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import SourceCard from './SourceCard';
 import SearchFilters from './SearchFilters';
 import { chatAPI, ChatResponse } from '@/lib/api';
 import { fetchLipSync, base64ToAudioUrl, type RhubarbMouthCue } from '@/lib/rhubarbLipSync';
-import type { AvatarHandle } from './AvatarWithLipSync';
-
-const AvatarWithLipSync = dynamic(() => import('./AvatarWithLipSync'), { ssr: false });
+import AvatarWithLipSync, { type AvatarHandle } from './AvatarWithLipSync';
 
 interface Message {
   id: string;
@@ -113,6 +110,9 @@ export default function ChatWindowWithRhubarb() {
   const animateLipSync = (audio: HTMLAudioElement, mouthCues: RhubarbMouthCue[]) => {
     let currentCueIndex = 0;
 
+    console.log('[Rhubarb] Setting up lip-sync with', mouthCues.length, 'cues');
+    console.log('[Rhubarb] First 5 cues:', mouthCues.slice(0, 5));
+
     const updateMouthShape = () => {
       if (!audio || audio.paused || audio.ended) {
         avatarRef.current?.setMouthShape('X');
@@ -129,16 +129,27 @@ export default function ChatWindowWithRhubarb() {
 
       const currentCue = mouthCues[currentCueIndex];
       
-      if (currentTime >= currentCue.start && currentTime <= currentCue.end) {
-        avatarRef.current?.setMouthShape(currentCue.value);
-        console.log(`[Rhubarb] Time: ${currentTime.toFixed(2)}s, Shape: ${currentCue.value}`);
+      if (currentCue && currentTime >= currentCue.start && currentTime <= currentCue.end) {
+        if (avatarRef.current) {
+          avatarRef.current.setMouthShape(currentCue.value);
+          // Only log every 10th frame to reduce spam
+          if (Math.random() < 0.1) {
+            console.log(`[Rhubarb] Time: ${currentTime.toFixed(2)}s, Shape: ${currentCue.value}, CueIndex: ${currentCueIndex}/${mouthCues.length}`);
+          }
+        } else {
+          console.warn('[Rhubarb] avatarRef.current is null!');
+        }
       }
 
       animationFrameRef.current = requestAnimationFrame(updateMouthShape);
     };
 
+    // Add event listeners BEFORE playing
     audio.addEventListener('play', () => {
-      console.log('[Rhubarb] Audio started, beginning lip-sync');
+      console.log('[Rhubarb] Audio play event fired');
+      console.log('[Rhubarb] avatarRef.current exists:', !!avatarRef.current);
+      console.log('[Rhubarb] Audio duration:', audio.duration);
+      setIsSpeaking(true);
       updateMouthShape();
     });
 
@@ -152,16 +163,33 @@ export default function ChatWindowWithRhubarb() {
     });
 
     audio.addEventListener('pause', () => {
+      console.log('[Rhubarb] Audio paused');
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
       avatarRef.current?.reset();
+      setIsSpeaking(false);
+    });
+
+    audio.addEventListener('error', (e) => {
+      console.error('[Rhubarb] Audio error:', e);
+      setIsSpeaking(false);
+      avatarRef.current?.reset();
+    });
+
+    audio.addEventListener('timeupdate', () => {
+      // Log time updates to verify audio is actually playing
+      if (Math.random() < 0.05) {
+        console.log('[Rhubarb] Audio timeupdate:', audio.currentTime.toFixed(2));
+      }
     });
   };
 
   // Speak text using Rhubarb lip-sync
   const speakText = async (text: string) => {
     try {
+      console.log('[TTS] Starting speech synthesis for:', text.substring(0, 50) + '...');
+      
       // Stop any currently playing audio
       if (currentAudioRef.current) {
         currentAudioRef.current.pause();
@@ -174,28 +202,38 @@ export default function ChatWindowWithRhubarb() {
 
       setIsSpeaking(true);
 
-      console.log('[Rhubarb] Fetching lip-sync data...');
+      console.log('[Rhubarb] Fetching lip-sync data from backend...');
       const response = await fetchLipSync(text, 'user123', 'Female_2');
 
       console.log('[Rhubarb] Received response:', {
         textLength: response.text.length,
         mouthCues: response.lipsync.mouthCues.length,
-        duration: response.lipsync.metadata.duration
+        duration: response.lipsync.metadata.duration,
+        hasAudio: !!response.audio
       });
 
+      if (!response.audio) {
+        throw new Error('No audio data received from backend');
+      }
+
       // Create audio from base64
+      console.log('[TTS] Decoding audio from base64...');
       const audioUrl = base64ToAudioUrl(response.audio);
       const audio = new Audio(audioUrl);
       currentAudioRef.current = audio;
 
       // Start lip-sync animation
+      console.log('[TTS] Starting lip-sync animation...');
       animateLipSync(audio, response.lipsync.mouthCues);
 
       // Play audio
+      console.log('[TTS] Playing audio...');
       await audio.play();
+      console.log('[TTS] Audio playback started successfully');
 
     } catch (error) {
-      console.error('[Rhubarb] Error:', error);
+      console.error('[TTS] Error:', error);
+      alert(`TTS Error: ${error instanceof Error ? error.message : 'Unknown error'}\n\nCheck:\n1. Backend is running on port 8000\n2. Azure Speech key is configured\n3. FFmpeg is installed\n4. Rhubarb executable exists`);
       setIsSpeaking(false);
       avatarRef.current?.reset();
     }
@@ -228,27 +266,61 @@ export default function ChatWindowWithRhubarb() {
     setLoading(true);
 
     try {
-      const response = await chatAPI.sendMessage({
-        query: text,
-        filters: Object.keys(filters).length > 0 ? filters : undefined,
-        show_sources: showSources,
-      });
+      // If autoSpeak is enabled, use lip-sync endpoint (includes answer + audio + lip-sync)
+      if (autoSpeak) {
+        console.log('[Chat] Using lip-sync endpoint for integrated response');
+        const lipSyncResponse = await fetchLipSync(text, 'user123', 'Female_2');
+        
+        const botMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: lipSyncResponse.text,
+          isUser: false,
+          timestamp: new Date(),
+          format: 'text',
+        };
 
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: response.answer,
-        isUser: false,
-        timestamp: new Date(),
-        sources: response.sources,
-        format: response.format || 'text',
-        tableData: response.table_data || undefined,
-      };
+        setMessages((prev) => [...prev, botMessage]);
 
-      setMessages((prev) => [...prev, botMessage]);
+        // Play audio with lip-sync
+        if (lipSyncResponse.audio) {
+          // Stop any currently playing audio
+          if (currentAudioRef.current) {
+            currentAudioRef.current.pause();
+            currentAudioRef.current = null;
+          }
 
-      // Auto-speak the response if enabled
-      if (autoSpeak && response.format === 'text') {
-        await speakText(response.answer);
+          if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+          }
+
+          setIsSpeaking(true);
+
+          const audioUrl = base64ToAudioUrl(lipSyncResponse.audio);
+          const audio = new Audio(audioUrl);
+          currentAudioRef.current = audio;
+
+          animateLipSync(audio, lipSyncResponse.lipsync.mouthCues);
+          await audio.play();
+        }
+      } else {
+        // Use regular chat endpoint (no audio)
+        const response = await chatAPI.sendMessage({
+          query: text,
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
+          show_sources: showSources,
+        });
+
+        const botMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: response.answer,
+          isUser: false,
+          timestamp: new Date(),
+          sources: response.sources,
+          format: response.format || 'text',
+          tableData: response.table_data || undefined,
+        };
+
+        setMessages((prev) => [...prev, botMessage]);
       }
     } catch (error) {
       console.error('Chat error:', error);
@@ -288,6 +360,13 @@ export default function ChatWindowWithRhubarb() {
             title={isSpeaking ? 'Stop Speaking' : autoSpeak ? 'Auto-speak ON' : 'Auto-speak OFF'}
           >
             {isSpeaking ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          <button 
+            onClick={() => speakText('Hello, this is a test of the text to speech system with Rhubarb lip sync.')}
+            className="p-3 bg-green-500/80 backdrop-blur-xl rounded-full border border-white/20 text-white hover:bg-green-600/80 hover:scale-105 transition-all shadow-lg"
+            title="Test TTS"
+          >
+            🎤
           </button>
         </div>
 

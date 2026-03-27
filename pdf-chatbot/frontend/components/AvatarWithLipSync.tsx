@@ -148,7 +148,7 @@ function ShaylaModel({ isSpeaking, currentMouthShape }: ShaylaModelProps) {
   });
 
   return (
-   <group ref={group} dispose={null} position={[0, -2.1, 0]} scale={[2.2, 2.2, 2.2]}>
+   <group ref={group} dispose={null} position={[0, -2.9, 0]} scale={[2.7, 2.7, 2.7]}>
       <mesh
         castShadow
         receiveShadow

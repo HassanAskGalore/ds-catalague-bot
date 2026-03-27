@@ -503,7 +503,7 @@ export default function ChatWindowWithRhubarb() {
             </div>
 
             <div className="mt-4 text-[13px] font-medium text-gray-400 pointer-events-auto text-center flex items-center justify-center gap-1.5 opacity-80">
-              Powered by <span className="text-gray-600 font-semibold tracking-wide">Rhubarb Lip-Sync</span>
+              Powered by <span className="text-gray-600 font-semibold tracking-wide">MachineAvtars | AskGalore </span>
             </div>
             
           </div>

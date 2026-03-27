@@ -368,8 +368,8 @@ const AvatarWithLipSync = forwardRef<AvatarHandle, AvatarProps>(({ isSpeaking = 
             enableZoom={false} 
             enablePan={false} 
             target={[0, 1.5, 0]}
-            minPolarAngle={Math.PI / 2.5} 
-            maxPolarAngle={Math.PI / 2.5}
+            minPolarAngle={Math.PI / 2.2} 
+            maxPolarAngle={Math.PI / 2.2}
             minAzimuthAngle={-Math.PI / 8}
             maxAzimuthAngle={Math.PI / 8}
           />

@@ -148,7 +148,7 @@ function ShaylaModel({ isSpeaking, currentMouthShape }: ShaylaModelProps) {
   });
 
   return (
-    <group ref={group} dispose={null}>
+   <group ref={group} dispose={null} position={[0, -1.8, 0]} scale={[2, 2, 2]}>
       <mesh
         castShadow
         receiveShadow
@@ -323,14 +323,42 @@ const AvatarWithLipSync = forwardRef<AvatarHandle, AvatarProps>(({ isSpeaking = 
       
       <div className="w-full h-full relative">
         <Canvas 
-          camera={{ position: [0, 0.3, 2.2], fov: 50 }}
+          camera={{ position: [0, 0, 2.3], fov: 30 }}
           className="w-full h-full z-10"
         >
-          <ambientLight intensity={0.8} />
-          <directionalLight position={[5, 5, 5]} intensity={1.5} color="#ffffff" />
-          <directionalLight position={[-5, 5, -5]} intensity={1} color="#e3000f" />
-          <spotLight position={[0, 5, 0]} intensity={0.5} />
-          <Environment preset="city" />
+          <Environment preset="sunset" environmentIntensity={0.2} />
+          <ambientLight intensity={0.15} color="#cce8ff" />
+          <spotLight
+            position={[1.2, 1.69, 10]}
+            intensity={120}
+            color="#ffffff"
+            castShadow
+            shadow-mapSize-width={2048}
+            shadow-mapSize-height={2048}
+            shadow-camera-far={15}
+            shadow-camera-near={0.3}
+          />
+          <spotLight
+            position={[-20, -1.9, 5]}
+            intensity={600}
+            color="#f5e4f4"
+            angle={Math.PI / 5}
+            penumbra={0.7}
+          />
+          <spotLight
+            position={[0, -1.53, 4.09]}
+            intensity={20}
+            color="#f2d3f1"
+            angle={Math.PI / 5.6}
+            penumbra={0.8}
+          />
+          <spotLight
+            position={[3, 1, 5]}
+            intensity={15}
+            color="#f5e4f4"
+            angle={Math.PI / 6}
+            penumbra={0.5}
+          />
           
           <Suspense fallback={<FallbackImage />}>
             <ShaylaModel isSpeaking={isSpeaking} currentMouthShape={currentMouthShape} />
@@ -339,11 +367,11 @@ const AvatarWithLipSync = forwardRef<AvatarHandle, AvatarProps>(({ isSpeaking = 
           <OrbitControls 
             enableZoom={false} 
             enablePan={false} 
-            target={[0, 0.7, 0]}
-            minPolarAngle={Math.PI / 2} 
-            maxPolarAngle={Math.PI / 2}
-            minAzimuthAngle={-Math.PI / 12}
-            maxAzimuthAngle={Math.PI / 12}
+            target={[0, 1.5, 0]}
+            minPolarAngle={Math.PI / 2.5} 
+            maxPolarAngle={Math.PI / 2.5}
+            minAzimuthAngle={-Math.PI / 8}
+            maxAzimuthAngle={Math.PI / 8}
           />
         </Canvas>
       </div>

@@ -2,6 +2,7 @@
 .env
 .env.*
 *.env
+.venv
 pdf-chatbot/.env
 
 # Python

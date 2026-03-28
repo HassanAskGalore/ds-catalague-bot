@@ -521,7 +521,7 @@ export default function ChatWindowWithRhubarb() {
           {/* Header */}
           <div className="absolute top-0 w-full px-6 py-4 flex items-center justify-between z-20 bg-gradient-to-b from-[#f8f9fa] to-transparent pointer-events-none">
             <div className="flex items-center gap-3 pointer-events-auto">
-              <img src="/mosdorfer-logo.png" alt="Mosdorfer" className="h-10 w-auto object-contain" />
+              <img src="/mosdorfer-logo.png" alt="Mosdorfer" className="h-14 w-auto object-contain" />
               <span className="font-bold text-moss-dark tracking-tight">AI Assistant</span>
             </div>
             <div className="flex gap-2 pointer-events-auto">
@@ -621,10 +621,6 @@ export default function ChatWindowWithRhubarb() {
                   <Send size={18} className="translate-x-[1px]" />
                 </button>
               </div>
-            </div>
-
-            <div className="mt-4 text-[13px] font-medium text-gray-400 pointer-events-auto text-center flex items-center justify-center gap-1.5 opacity-80">
-              Powered by <span className="text-gray-600 font-semibold tracking-wide">MachineAvtars | AskGalore </span>
             </div>
             
           </div>
